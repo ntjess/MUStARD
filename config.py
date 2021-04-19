@@ -9,14 +9,14 @@ class Config:
 
     use_bert = True # if False, uses glove pooling
 
-    use_target_text = False
+    use_target_text = True
     use_target_audio = False # adds audio target utterance features.
     use_target_video = False # adds video target utterance features.
 
-    speaker_independent = False  # speaker independent experiments
+    speaker_independent = True  # speaker independent experiments
 
     embedding_dim = 300  # GloVe embedding size
-    word_embedding_path = "/home/sacastro/glove.840B.300d.txt"
+    word_embedding_path = "/home/ntjess/Desktop/Git/MUStARD/data/glove.840B.300d.txt"
     max_sent_length = 20
     max_context_length = 4  # Maximum sentences to take in context
     num_classes = 2  # Binary classification of sarcasm
