@@ -2,40 +2,25 @@
 # from data_loader import DataLoader
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+from sklearn import random_projection
 from sklearn.cluster import FeatureAgglomeration
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from utilitys.widgets import HoverScatter
 
 from config import Config
 
-import pandas as pd
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
-from sklearn import svm, random_projection
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-import pyqtgraph as pg
-from utilitys.widgets import HoverScatter
 app = pg.mkQApp()
 from utilitys import PrjParam
 from ast import literal_eval
-from pyqtgraph.Qt import QtWidgets, QtCore, QtGui
-import sweetviz
 import pickle as pkl
 
 imgDir = Path('./proj_images')
 imgDir.mkdir(exist_ok=True)
-cfg = Config()
-BERT_COL = 7
-# dl = DataLoader(cfg)
-# bertFeats = np.array([data[BERT_COL] for data in dl.data_input])
-# np.save('./data/bertFeats.npy', bertFeats)
-# bertFeats = np.load('./data/bertFeats.npy')
-# bertFeats = np.delete(bertFeats, 308, 1)
-df = pd.read_csv('./data/bert_plus_sarcasm.csv')
-membership = df['speaker'].apply(str.isalpha)
-df = df[membership]
-bertFeats = np.row_stack(df['bert'].apply(literal_eval))
-sarcasmDf = df.drop('bert', axis=1)
 
 def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
   # -----
@@ -72,16 +57,19 @@ def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
   
   return outGrid
 
-def makeSarcasmRatioPlot(sarcasmDf):
+def makeSarcasmRatioPlot(sarcasmDf, save=True):
   speakers = np.unique(sarcasmDf['speaker'])
   ratioData = {}
   for speaker in speakers:
     speakerDf = sarcasmDf.loc[sarcasmDf['speaker'] == speaker, 'sarcasm']
     ratioData[speaker] = speakerDf.sum()/len(speakerDf)
-  pd.Series(ratioData).sort_values(ascending=False).plot.bar()
-  plt.title('Ratio of sarcastic to non-sarcastic sentences')
-  plt.tight_layout()
-  plt.savefig(imgDir/'sarcasmRatio.pdf')
+  ratioSer = pd.Series(ratioData).sort_values(ascending=False)
+  if save:
+    ratioSer.plot.bar()
+    plt.title('Ratio of sarcastic to non-sarcastic sentences')
+    plt.tight_layout()
+    plt.savefig(imgDir/'sarcasmRatio.pdf')
+  return ratioSer
 
 def makeSpeakerGridPlots():
   tformFile = './data/transformData.pkl'
@@ -112,4 +100,18 @@ def makeSpeakerGridPlots():
         pic = grid.grab()
         assert pic.save(str(imgDir/f'{title}.jpg'))
 
-makeSarcasmRatioPlot(sarcasmDf)
+if __name__ == '__main__':
+  cfg = Config()
+  BERT_COL = 7
+  # dl = DataLoader(cfg)
+  # bertFeats = np.array([data[BERT_COL] for data in dl.data_input])
+  # np.save('./data/bertFeats.npy', bertFeats)
+  # bertFeats = np.load('./data/bertFeats.npy')
+  # bertFeats = np.delete(bertFeats, 308, 1)
+
+  df = pd.read_csv('./data/bert_plus_sarcasm.csv')
+  membership = df['speaker'].apply(str.isalpha)
+  df = df[membership]
+  bertFeats = np.row_stack(df['bert'].apply(literal_eval))
+  sarcasmDf = df.drop('bert', axis=1)
+  makeSarcasmRatioPlot(sarcasmDf)
