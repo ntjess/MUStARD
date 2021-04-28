@@ -2,25 +2,31 @@
 # from data_loader import DataLoader
 from pathlib import Path
 
+import pyqtgraph as pg
+
+app = pg.mkQApp()
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pyqtgraph as pg
 from sklearn import random_projection
 from sklearn.cluster import FeatureAgglomeration
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from utilitys.widgets import HoverScatter
 
 from config import Config
 
-app = pg.mkQApp()
+from utilitys.widgets import HoverScatter
 from utilitys import PrjParam
 from ast import literal_eval
 import pickle as pkl
 
 imgDir = Path('./proj_images')
-imgDir.mkdir(exist_ok=True)
+
+def saveGrid(grid: pg.GraphicsLayoutWidget, saveFile):
+  fullSize = app.primaryScreen().size()
+  grid.resize(fullSize)
+  pic = grid.grab()
+  assert pic.save(str(saveFile))
 
 def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
   # -----
@@ -33,7 +39,7 @@ def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
     return
   colors, mapping = PrjParam(name=colorCol).toNumeric(colors, offset=False, returnMapping=True)
   uniqueLbls = np.unique(labels)
-  
+
   numLbls = len(uniqueLbls)
   nrows = np.sqrt(numLbls).astype(int)
   ncols = np.ceil(numLbls/nrows)
@@ -54,7 +60,7 @@ def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
 
     if ii % ncols == ncols-1:
         outGrid.nextRow()
-  
+
   return outGrid
 
 def makeSarcasmRatioPlot(sarcasmDf, save=True):
@@ -71,12 +77,13 @@ def makeSarcasmRatioPlot(sarcasmDf, save=True):
     plt.savefig(imgDir/'sarcasmRatio.pdf')
   return ratioSer
 
-def makeSpeakerGridPlots():
+def makeSpeakerGridPlots(sarcasmDf, bertFeats=None, show=False):
   tformFile = './data/transformData.pkl'
-  try:
+  if bertFeats is None:
     with open(tformFile, 'rb') as ifile:
       dataMap = pkl.load(ifile)
-  except Exception:
+  else:
+    print('Regenerating transform data...')
     dataMap = {
       'PCA': PCA().fit_transform(bertFeats),
       'TSNE': TSNE().fit_transform(bertFeats),
@@ -87,31 +94,54 @@ def makeSpeakerGridPlots():
     with open(tformFile, 'wb') as ofile:
       pkl.dump(dataMap, ofile)
 
-    for combo in ('speaker', 'sarcasm'), ('sarcasm', 'speaker'):
-      for tform in dataMap:
-        tfData = dataMap[tform]
-        grid = makeDataPlots(tfData, sarcasmDf, *combo, tform)
+  for combo in ('speaker', 'sarcasm'), ('sarcasm', 'speaker'):
+    for tform in dataMap:
+      tfData = dataMap[tform]
+      grid = makeDataPlots(tfData, sarcasmDf, *combo, tform)
+      if show:
         grid.show()
-        title = grid.windowTitle()
-        print(grid.windowTitle())
-        # Resize for good aspect ratio before saving
-        fullSize = app.primaryScreen().size()
-        grid.resize(fullSize)
-        pic = grid.grab()
-        assert pic.save(str(imgDir/f'{title}.jpg'))
+      title = grid.windowTitle()
+      saveGrid(grid, imgDir/f'{title}.jpg')
+
+def getSarcasmDf(optimalSpeakers=True, noContext=True, returnBert=True):
+  if returnBert:
+    df = pd.read_csv('./data/bert_plus_sarcasm.csv')
+  else:
+    df = pd.read_csv('./data/sarcasm_data.csv')
+  membership = np.ones(len(df), dtype=bool)
+  if optimalSpeakers:
+    speakers = df['speaker']
+    sarcasmRatio = makeSarcasmRatioPlot(df, False)
+    badSpeakers = sarcasmRatio[(sarcasmRatio < 0.001) | (sarcasmRatio > 0.999)].index
+    membership &= (~np.isin(speakers, badSpeakers))
+    membership &= ~(speakers.str.contains('PERSON'))
+  if noContext:
+    membership &= (~df['context'])
+
+  df = sarcasmDf = df[membership]
+  if returnBert:
+    sarcasmDf = df.drop('bert', axis=1)
+    bertFeats = np.row_stack(df['bert'].apply(literal_eval))
+    return sarcasmDf, bertFeats
+  return sarcasmDf
+
+def main():
+  from ngram_heatmap import makeAllHeatmapPlots
+  REGEN_BERT = True
+  USE_CONTEXT = True
+  print('Getting sarcasm data...')
+  sarcasmDf = getSarcasmDf(noContext=USE_CONTEXT, returnBert=REGEN_BERT)
+  if REGEN_BERT:
+    sarcasmDf, bertFeats = sarcasmDf
+  else:
+    bertFeats = None
+  print('Making ratio plot...')
+  makeSarcasmRatioPlot(sarcasmDf)
+  print('Making speaker feature plots...')
+  makeSpeakerGridPlots(sarcasmDf, bertFeats)
+  print('Making heatmap plots...')
+  makeAllHeatmapPlots(sarcasmDf)
+  print('Done!')
 
 if __name__ == '__main__':
-  cfg = Config()
-  BERT_COL = 7
-  # dl = DataLoader(cfg)
-  # bertFeats = np.array([data[BERT_COL] for data in dl.data_input])
-  # np.save('./data/bertFeats.npy', bertFeats)
-  # bertFeats = np.load('./data/bertFeats.npy')
-  # bertFeats = np.delete(bertFeats, 308, 1)
-
-  df = pd.read_csv('./data/bert_plus_sarcasm.csv')
-  membership = df['speaker'].apply(str.isalpha)
-  df = df[membership]
-  bertFeats = np.row_stack(df['bert'].apply(literal_eval))
-  sarcasmDf = df.drop('bert', axis=1)
-  makeSarcasmRatioPlot(sarcasmDf)
+  main()
