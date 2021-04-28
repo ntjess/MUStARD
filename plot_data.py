@@ -1,60 +1,117 @@
 # from nltk.grammar import cfg_demo
 # from data_loader import DataLoader
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pyqtgraph as pg
+from sklearn import random_projection
+from sklearn.cluster import FeatureAgglomeration
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from utilitys.widgets import HoverScatter
+
 from config import Config
 
-import pandas as pd
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
-from sklearn import svm
-from sklearn.manifold import TSNE
-import matplotlib.pyplot as plt
-import pyqtgraph as pg
-from utilitys.widgets import HoverScatter
 app = pg.mkQApp()
+from utilitys import PrjParam
+from ast import literal_eval
+import pickle as pkl
 
-cfg = Config()
-BERT_COL = 7
-# dl = DataLoader(cfg)
-# bertFeats = np.array([data[BERT_COL] for data in dl.data_input])
-# np.save('./data/bertFeats.npy', bertFeats)
-# bertFeats = np.load('./data/bertFeats.npy')
-# bertFeats = np.delete(bertFeats, 308, 1)
-bertFeats = pd.read_csv('./data/sarcasm_bert.csv', index_col=0).to_numpy()
-sarcasmDf = pd.read_csv('./data/sarcasm_data.csv')
-membership = (sarcasmDf['show'] == 'BBT').values
-bertFeats = bertFeats[membership]
-sarcasmDf = sarcasmDf[membership]
-# labels = np.array(dl.data_output)
-# np.save('./data/labels.npy', labels)
-# labels = np.load('./data/labels.npy')
-speakerLabels = sarcasmDf['speaker'].to_numpy()
-speakers = np.unique(speakerLabels).tolist()
-labels = np.fromiter((speakers.index(l) for l in speakerLabels), dtype=int)
+imgDir = Path('./proj_images')
+imgDir.mkdir(exist_ok=True)
 
-pca = PCA()
-pcaTransformed = pca.fit_transform(bertFeats)
+def makeDataPlots(plotFeats, sarcasmDf, labelCol, colorCol, featureType):
+  # -----
+  # SARCASM PER SPEAKER PLOTS
+  # -----
+  plotFeats = plotFeats[:, :2].T
+  labels = sarcasmDf[labelCol].to_numpy()
+  colors = sarcasmDf[colorCol].to_numpy()
+  if len(colors) == 0:
+    return
+  colors, mapping = PrjParam(name=colorCol).toNumeric(colors, offset=False, returnMapping=True)
+  uniqueLbls = np.unique(labels)
+  
+  numLbls = len(uniqueLbls)
+  nrows = np.sqrt(numLbls).astype(int)
+  ncols = np.ceil(numLbls/nrows)
+  outGrid = pg.GraphicsLayoutWidget(title=f'{colorCol.title()} per {labelCol.title()}, {featureType}')
 
-lda = LDA()
-ldaTransformed = lda.fit_transform(bertFeats, labels)
+  for ii, curLbl in enumerate(uniqueLbls):
+    membership = labels == curLbl
+    data = plotFeats[:, membership]
+    curColors = colors[membership]
+    pltItem: pg.PlotItem = outGrid.addPlot(title=curLbl)
+    spi = HoverScatter(*data, pen=curColors, brush=curColors)
+    pltItem.setLabel('bottom', 'Feature 1')
+    pltItem.setLabel('left', 'Feature 2')
+    pltItem.addItem(spi)
+    # pltItem.addLegend()
+    # for clr in np.unique(curColors):
+    #   pltItem.addItem(HoverScatter([], [], brush=clr, pen=clr, name=mapping[clr]))
 
-tsne = TSNE()
-tsneTransformed = tsne.fit_transform(bertFeats, labels)
+    if ii % ncols == ncols-1:
+        outGrid.nextRow()
+  
+  return outGrid
 
-pw = pg.PlotWidget()
-spi = HoverScatter(*tsneTransformed[:,:2].T, pen=labels, brush=labels, data=speakerLabels)
-pw.addItem(spi)
-pw.show()
+def makeSarcasmRatioPlot(sarcasmDf, save=True):
+  speakers = np.unique(sarcasmDf['speaker'])
+  ratioData = {}
+  for speaker in speakers:
+    speakerDf = sarcasmDf.loc[sarcasmDf['speaker'] == speaker, 'sarcasm']
+    ratioData[speaker] = speakerDf.sum()/len(speakerDf)
+  ratioSer = pd.Series(ratioData).sort_values(ascending=False)
+  if save:
+    ratioSer.plot.bar()
+    plt.title('Ratio of sarcastic to non-sarcastic sentences')
+    plt.tight_layout()
+    plt.savefig(imgDir/'sarcasmRatio.pdf')
+  return ratioSer
 
-coefs = np.sort(np.abs(lda.coef_)).flatten()
-importances = coefs/coefs.max()
-plt.hist(importances, 100)
+def makeSpeakerGridPlots():
+  tformFile = './data/transformData.pkl'
+  try:
+    with open(tformFile, 'rb') as ifile:
+      dataMap = pkl.load(ifile)
+  except Exception:
+    dataMap = {
+      'PCA': PCA().fit_transform(bertFeats),
+      'TSNE': TSNE().fit_transform(bertFeats),
+      'Agglomeration': FeatureAgglomeration().fit_transform(bertFeats),
+      'Gaussian Projection': random_projection.GaussianRandomProjection(2).fit_transform(bertFeats),
+      'Sparse Projection': random_projection.SparseRandomProjection(2).fit_transform(bertFeats)
+    }
+    with open(tformFile, 'wb') as ofile:
+      pkl.dump(dataMap, ofile)
 
-toPlot = ldaTransformed[:10000]
-plt.scatter(*toPlot[:, :2].T)
-plt.show()
+    for combo in ('speaker', 'sarcasm'), ('sarcasm', 'speaker'):
+      for tform in dataMap:
+        tfData = dataMap[tform]
+        grid = makeDataPlots(tfData, sarcasmDf, *combo, tform)
+        grid.show()
+        title = grid.windowTitle()
+        print(grid.windowTitle())
+        # Resize for good aspect ratio before saving
+        fullSize = app.primaryScreen().size()
+        grid.resize(fullSize)
+        pic = grid.grab()
+        assert pic.save(str(imgDir/f'{title}.jpg'))
 
+if __name__ == '__main__':
+  cfg = Config()
+  BERT_COL = 7
+  # dl = DataLoader(cfg)
+  # bertFeats = np.array([data[BERT_COL] for data in dl.data_input])
+  # np.save('./data/bertFeats.npy', bertFeats)
+  # bertFeats = np.load('./data/bertFeats.npy')
+  # bertFeats = np.delete(bertFeats, 308, 1)
 
-def makeDataPlots(bertFeats, labels):
-  gw = pg.GraphicsLayoutWidget()
-  curPlt = gw.nextCol()
+  df = pd.read_csv('./data/bert_plus_sarcasm.csv')
+  membership = df['speaker'].apply(str.isalpha)
+  df = df[membership]
+  bertFeats = np.row_stack(df['bert'].apply(literal_eval))
+  sarcasmDf = df.drop('bert', axis=1)
+  makeSarcasmRatioPlot(sarcasmDf)
