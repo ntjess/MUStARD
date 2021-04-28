@@ -30,6 +30,27 @@ def makeFreqSer(corpus: pd.DataFrame, value: Any=None, whichCol='speaker'):
   freqDict.pop(('END', 'BEGIN'), None)
   return pd.Series(freqDict).sort_values(ascending=False)
 
+def makeBigramImage(df: pd.DataFrame, resizeRatio=0.25, value=None, whichCol='speaker',
+                    allToks=None, tokToIdxMapping=None):
+  if allToks is None:
+    allToks = np.unique(tokenize(df['text'], 1))
+  if tokToIdxMapping is None:
+    tokToIdxMapping = pd.Series(np.arange(len(allToks)), allToks)
+
+  freqSer = makeFreqSer(df, value, whichCol)
+  imgSideLen = int(len(allToks)*resizeRatio)
+  curToks = np.vstack(freqSer.index)
+
+  img = np.zeros((imgSideLen, imgSideLen), dtype='uint16')
+  rowIdxs = (tokToIdxMapping[curToks[:,0]]*resizeRatio).astype(int)
+  colIdxs = (tokToIdxMapping[curToks[:,1]]*resizeRatio).astype(int)
+  rowIdxs = np.clip(rowIdxs, 0, imgSideLen-1)
+  colIdxs = np.clip(colIdxs, 0, imgSideLen-1)
+  img[rowIdxs, colIdxs] = freqSer.values
+  img = cv.GaussianBlur(img.astype(float), (0,0), 2)
+  img = np.log10(img + 1)**0.5
+  return img
+
 def makePlots(df, imgDir=imgDir, whichCol='speaker', resizeRatio=0.25):
   uniqueLbls = np.unique(df[whichCol])
   numLbls = len(uniqueLbls)
@@ -39,20 +60,11 @@ def makePlots(df, imgDir=imgDir, whichCol='speaker', resizeRatio=0.25):
 
   allToks = np.unique(tokenize(df['text'], 1))
   tokToIdxMapping = pd.Series(np.arange(len(allToks)), allToks)
-  imgSideLen = int(len(allToks)*resizeRatio)
   for ii, curLbl in enumerate(uniqueLbls):
-    freqSer = makeFreqSer(df, curLbl, whichCol)
     pltItem: pg.PlotItem = outGrid.addPlot(title=curLbl)
     pltItem.getViewBox().setAspectLocked(True)
-    curToks = np.vstack(freqSer.index)
-    img = np.zeros((imgSideLen, imgSideLen), dtype='uint8')
-    rowIdxs = (tokToIdxMapping[curToks[:,0]]*resizeRatio).astype(int)
-    colIdxs = (tokToIdxMapping[curToks[:,1]]*resizeRatio).astype(int)
-    rowIdxs = np.clip(rowIdxs, 0, imgSideLen-1)
-    colIdxs = np.clip(colIdxs, 0, imgSideLen-1)
-    img[rowIdxs, colIdxs] = freqSer.values
-    img = cv.morphologyEx(img, cv.MORPH_DILATE, morph.disk(3)).astype(float)
-    img = np.log10(img + 1)
+    img = makeBigramImage(df, resizeRatio, curLbl, whichCol,
+                          allToks, tokToIdxMapping)
     imgItem = pg.ImageItem(img)
     pltItem.addItem(imgItem)
     pltItem.vb.autoRange(padding=0)

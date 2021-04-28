@@ -103,7 +103,7 @@ def makeSpeakerGridPlots(sarcasmDf, bertFeats=None, show=False):
       title = grid.windowTitle()
       saveGrid(grid, imgDir/f'{title}.jpg')
 
-def getSarcasmDf(optimalSpeakers=True, noContext=True, returnBert=True):
+def getSarcasmDf(optimalSpeakers=True, context=False, returnBert=True):
   if returnBert:
     df = pd.read_csv('./data/bert_plus_sarcasm.csv')
   else:
@@ -115,7 +115,7 @@ def getSarcasmDf(optimalSpeakers=True, noContext=True, returnBert=True):
     badSpeakers = sarcasmRatio[(sarcasmRatio < 0.001) | (sarcasmRatio > 0.999)].index
     membership &= (~np.isin(speakers, badSpeakers))
     membership &= ~(speakers.str.contains('PERSON'))
-  if noContext:
+  if not context:
     membership &= (~df['context'])
 
   df = sarcasmDf = df[membership]
@@ -130,7 +130,7 @@ def main():
   REGEN_BERT = True
   USE_CONTEXT = True
   print('Getting sarcasm data...')
-  sarcasmDf = getSarcasmDf(noContext=USE_CONTEXT, returnBert=REGEN_BERT)
+  sarcasmDf = getSarcasmDf(context=USE_CONTEXT, returnBert=REGEN_BERT)
   if REGEN_BERT:
     sarcasmDf, bertFeats = sarcasmDf
   else:
